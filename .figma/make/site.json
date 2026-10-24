@@ -1,0 +1,10 @@
+{
+  "description": "Visualize and analyze demographic data with an interactive dashboard that displays normalized trends over time and detailed graphs for each region.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
