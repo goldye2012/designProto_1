@@ -15,6 +15,83 @@ type ChartRange = {
 
 const YEARS = [...DATA_YEARS]
 const REGIONS = REGION_DATA
+const REGION_TYPES: RegionType[] = ["시", "군", "구"]
+const DISTRICT_CITY_GROUPS = [
+  {
+    city: "수원시",
+    districts: ["경기도/장안구", "경기도/권선구", "경기도/팔달구", "경기도/영통구"],
+  },
+  {
+    city: "성남시",
+    districts: ["경기도/수정구", "경기도/중원구", "경기도/분당구"],
+  },
+  { city: "안양시", districts: ["경기도/만안구", "경기도/동안구"] },
+  {
+    city: "부천시",
+    districts: ["경기도/원미구", "경기도/소사구", "경기도/오정구"],
+  },
+  { city: "안산시", districts: ["경기도/상록구", "경기도/단원구"] },
+  {
+    city: "고양시",
+    districts: [
+      "경기도/덕양구",
+      "경기도/일산구",
+      "경기도/일산동구",
+      "경기도/일산서구",
+    ],
+  },
+  {
+    city: "용인시",
+    districts: ["경기도/처인구", "경기도/기흥구", "경기도/수지구"],
+  },
+  {
+    city: "화성시",
+    districts: [
+      "경기도/만세구",
+      "경기도/효행구",
+      "경기도/병점구",
+      "경기도/동탄구",
+    ],
+  },
+  {
+    city: "청주시",
+    districts: ["충청북도/상당구", "충청북도/서원구", "충청북도/흥덕구", "충청북도/청원구"],
+  },
+  { city: "천안시", districts: ["충청남도/동남구", "충청남도/서북구"] },
+  { city: "전주시", districts: ["전북특별자치도/완산구", "전북특별자치도/덕진구"] },
+  { city: "포항시", districts: ["경상북도/남구", "경상북도/북구"] },
+  {
+    city: "창원시",
+    districts: [
+      "경상남도/의창구",
+      "경상남도/성산구",
+      "경상남도/마산합포구",
+      "경상남도/마산회원구",
+      "경상남도/진해구",
+    ],
+  },
+]
+const DISTRICT_CITY_BY_ID = new Map<string, string>(
+  DISTRICT_CITY_GROUPS.flatMap(({ city, districts }) =>
+    districts.map((district) => [district, city] as const),
+  ),
+)
+
+function districtCity(region: (typeof REGIONS)[number]) {
+  return DISTRICT_CITY_BY_ID.get(region.id) ?? region.province
+}
+
+const DISTRICT_CITIES = [
+  ...new Set(
+    REGIONS.filter((region) => region.type === "구").map(districtCity),
+  ),
+]
+
+function districtCityColor(region: (typeof REGIONS)[number]) {
+  const cityIndex = DISTRICT_CITIES.indexOf(districtCity(region))
+  const hue = (cityIndex * 360) / DISTRICT_CITIES.length
+  return `hsl(${hue} 72% 66%)`
+}
 
 const CHART = {
   width: 920,
@@ -122,15 +199,12 @@ function Axes({ rawRange }: { rawRange?: ChartRange }) {
 }
 
 export default function App() {
-  const [type, setType] = useState<"전체" | RegionType>("전체")
   const [selectedLine, setSelectedLine] = useState("경기도/용인시")
   const [hoveredLine, setHoveredLine] = useState<string | null>(null)
   const [province, setProvince] = useState("서울특별시")
   const [query, setQuery] = useState("")
   const [searchOpen, setSearchOpen] = useState(false)
 
-  const visibleRegions =
-    type === "전체" ? REGIONS : REGIONS.filter((region) => region.type === type)
   const provinceValues =
     PROVINCE_DATA.find((item) => item.name === province)?.values ?? []
   const availableProvinceValues = provinceValues.filter(
@@ -230,85 +304,103 @@ export default function App() {
           <div>
             <div className="section-number">01</div>
             <p className="eyebrow">NORMALIZED OVERVIEW</p>
-            <h2>시·군·구 정규화 추이</h2>
+            <h2>시·군·구별 정규화 추이</h2>
           </div>
-          <div className="tabs" role="group" aria-label="지역 유형 선택">
-            {(["전체", "시", "군", "구"] as const).map((item) => (
-              <button
-                key={item}
-                className={type === item ? "active" : ""}
-                onClick={() => setType(item)}
-                type="button"
-              >
-                {item}
-                <span>
-                  {item === "전체"
-                    ? REGIONS.length
-                    : REGIONS.filter((region) => region.type === item).length}
-                </span>
-              </button>
-            ))}
-          </div>
+          <p className="normalized-description">
+            지역 유형별 그래프 · 각 지역의 최소 0, 최대 1
+          </p>
         </div>
 
-        <div className="chart-frame overview-frame">
-          <div className="chart-meta">
-            <span>정규화 지수</span>
-            <span>라인을 선택해 강조</span>
-          </div>
-          <svg
-            className="line-chart"
-            viewBox={`0 0 ${CHART.width} ${CHART.height}`}
-            role="img"
-            aria-label="지역별 정규화 가구수 변화 라인 차트"
-          >
-            <Axes />
-            {visibleRegions.map((region) => {
-              const isActive = selectedLine === region.id
-              const isHovered = hoveredLine === region.id
-              return (
-                <path
-                  key={region.id}
-                  d={pathFor(normalize(region.values))}
-                  className={`data-line ${isActive ? "selected" : ""} ${
-                    isHovered ? "hovered" : ""
-                  }`}
-                  onClick={() => setSelectedLine(region.id)}
-                  onMouseEnter={() => setHoveredLine(region.id)}
-                  onMouseLeave={() => setHoveredLine(null)}
-                  tabIndex={0}
-                  onKeyDown={(event) =>
-                    event.key === "Enter" && setSelectedLine(region.id)
-                  }
-                  aria-label={`${region.province} ${region.name} 라인 선택`}
-                />
-              )
-            })}
-          </svg>
-          <div className="selected-label">
-            <span className="label-line" />
-            <div>
-              <small>SELECTED</small>
-              <strong>{selectedRegion?.name}</strong>
+        {REGION_TYPES.map((regionType) => {
+          const regions = REGIONS.filter((region) => region.type === regionType)
+          const selectedInGroup = selectedRegion?.type === regionType
+
+          return (
+            <div className="normalized-group" key={regionType}>
+              <div className="normalized-group-heading">
+                <h3>{regionType}</h3>
+                <span>{regions.length}개 지역</span>
+              </div>
+              <div className="chart-frame overview-frame">
+                <div className="chart-meta">
+                  <span>정규화 지수</span>
+                  <span>라인을 선택해 강조</span>
+                </div>
+                <svg
+                  className="line-chart"
+                  viewBox={`0 0 ${CHART.width} ${CHART.height}`}
+                  role="img"
+                  aria-label={`${regionType} 지역 정규화 가구수 변화 라인 차트`}
+                >
+                  <Axes />
+                  {regions.map((region) => {
+                    const isActive = selectedLine === region.id
+                    const isHovered = hoveredLine === region.id
+                    return (
+                      <path
+                        key={region.id}
+                        d={pathFor(normalize(region.values))}
+                        style={
+                          regionType === "구"
+                            ? { stroke: districtCityColor(region) }
+                            : undefined
+                        }
+                        className={`data-line ${isActive ? "selected" : ""} ${
+                          isHovered ? "hovered" : ""
+                        }`}
+                        onClick={() => setSelectedLine(region.id)}
+                        onMouseEnter={() => setHoveredLine(region.id)}
+                        onMouseLeave={() => setHoveredLine(null)}
+                        tabIndex={0}
+                        onKeyDown={(event) =>
+                          event.key === "Enter" && setSelectedLine(region.id)
+                        }
+                        aria-label={`${region.province} ${region.name} 라인 선택`}
+                      />
+                    )
+                  })}
+                </svg>
+                {selectedInGroup && (
+                  <div className="selected-label">
+                    <span
+                      className="label-line"
+                      style={
+                        regionType === "구"
+                          ? { backgroundColor: districtCityColor(selectedRegion) }
+                          : undefined
+                      }
+                    />
+                    <div>
+                      <small>SELECTED</small>
+                      <strong>{selectedRegion.name}</strong>
+                    </div>
+                    <span>{selectedRegion.province}</span>
+                  </div>
+                )}
+              </div>
+              <div className="region-legend">
+                {regions.map((region) => (
+                  <button
+                    type="button"
+                    key={region.id}
+                    className={selectedLine === region.id ? "active" : ""}
+                    onClick={() => setSelectedLine(region.id)}
+                  >
+                    <span
+                      className="legend-line"
+                      style={
+                        regionType === "구"
+                          ? { backgroundColor: districtCityColor(region) }
+                          : undefined
+                      }
+                    />
+                    {region.name}
+                  </button>
+                ))}
+              </div>
             </div>
-            <span>{selectedRegion?.province}</span>
-          </div>
-        </div>
-
-        <div className="region-legend">
-          {visibleRegions.map((region) => (
-            <button
-              type="button"
-              key={region.id}
-              className={selectedLine === region.id ? "active" : ""}
-              onClick={() => setSelectedLine(region.id)}
-            >
-              <span className="legend-line" />
-              {region.name}
-              <small>{region.type}</small>
-            </button>
-          ))}
-        </div>
+          )
+        })}
       </section>
 
       <section className="chart-section raw-section">

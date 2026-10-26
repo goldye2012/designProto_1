@@ -239,35 +239,33 @@ footer {
   letter-spacing: -0.045em;
 }
 
-.tabs {
-  border-bottom: 1px solid var(--rule);
-}
-
-.tabs button {
-  position: relative;
-  border: 0;
-  background: none;
-  padding: 12px 24px 16px;
+.normalized-description {
+  margin: 0 0 4px;
   color: var(--muted);
-  cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
 }
 
-.tabs button::after {
-  content: '';
-  position: absolute;
-  height: 1px;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  background: transparent;
+.normalized-group + .normalized-group {
+  margin-top: 48px;
+  padding-top: 30px;
+  border-top: 1px solid var(--rule);
 }
 
-.tabs button.active { color: var(--white); }
-.tabs button.active::after { background: var(--white); }
-.tabs button span {
-  margin-left: 8px;
-  color: var(--dim);
+.normalized-group-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.normalized-group-heading h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.normalized-group-heading span {
+  color: var(--muted);
   font: 400 9px/1 'DM Mono', monospace;
 }
 
@@ -612,8 +610,8 @@ footer {
   .chart-section { padding: 76px 0; }
   .section-heading { display: block; }
   .section-heading > div:first-child { padding-left: 42px; }
-  .tabs { margin-top: 30px; justify-content: space-between; }
-  .tabs button { padding-left: 12px; padding-right: 12px; }
+  .section-heading .normalized-description { margin: 24px 0 0 42px; }
+  .normalized-group + .normalized-group { margin-top: 36px; padding-top: 24px; }
   .overview-frame { padding: 18px 8px 0; overflow-x: auto; }
   .line-chart { width: 760px; max-width: none; }
   .selected-label { display: none; }
