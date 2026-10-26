@@ -239,6 +239,38 @@ footer {
   letter-spacing: -0.045em;
 }
 
+.tabs {
+  border-bottom: 1px solid var(--rule);
+}
+
+.tabs button {
+  position: relative;
+  border: 0;
+  background: none;
+  padding: 12px 24px 16px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.tabs button::after {
+  content: '';
+  position: absolute;
+  height: 1px;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  background: transparent;
+}
+
+.tabs button.active { color: var(--white); }
+.tabs button.active::after { background: var(--white); }
+.tabs button span {
+  margin-left: 8px;
+  color: var(--dim);
+  font: 400 9px/1 'DM Mono', monospace;
+}
+
 .normalized-description {
   margin: 0 0 4px;
   color: var(--muted);
@@ -405,6 +437,82 @@ footer {
 
 .raw-section {
   border-top: 1px solid var(--rule);
+}
+
+.comparison-section {
+  border-top: 1px solid var(--rule);
+}
+
+.comparison-frame {
+  padding: 22px 26px;
+}
+
+.comparison-meta {
+  margin-bottom: 14px;
+}
+
+.comparison-list {
+  max-height: 700px;
+  overflow-y: auto;
+  padding-right: 8px;
+  scrollbar-color: var(--dim) transparent;
+}
+
+.comparison-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 190px) minmax(100px, 1fr) 76px;
+  align-items: center;
+  gap: 18px;
+  min-height: 42px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.comparison-region {
+  display: grid;
+  gap: 3px;
+}
+
+.comparison-region strong {
+  overflow: hidden;
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comparison-region small {
+  color: var(--muted);
+  font: 400 8px/1 'DM Mono', monospace;
+}
+
+.comparison-track {
+  position: relative;
+  height: 18px;
+  background: linear-gradient(
+    to right,
+    transparent 49.9%,
+    var(--dim) 49.9%,
+    var(--dim) 50.1%,
+    transparent 50.1%
+  );
+}
+
+.comparison-bar {
+  position: absolute;
+  top: 4px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.comparison-bar.negative {
+  background: var(--red);
+}
+
+.comparison-rate {
+  text-align: right;
+  font: 400 10px/1 'DM Mono', monospace;
 }
 
 .search-wrap {
@@ -611,10 +719,17 @@ footer {
   .section-heading { display: block; }
   .section-heading > div:first-child { padding-left: 42px; }
   .section-heading .normalized-description { margin: 24px 0 0 42px; }
+  .section-heading .tabs { margin-top: 24px; justify-content: flex-start; }
+  .tabs button { padding: 12px 20px 16px; }
   .normalized-group + .normalized-group { margin-top: 36px; padding-top: 24px; }
   .overview-frame { padding: 18px 8px 0; overflow-x: auto; }
   .line-chart { width: 760px; max-width: none; }
   .selected-label { display: none; }
+  .comparison-frame { padding: 18px 12px; }
+  .comparison-meta { align-items: flex-start; gap: 12px; line-height: 1.5; }
+  .comparison-row { grid-template-columns: 84px minmax(70px, 1fr) 58px; gap: 8px; }
+  .comparison-region strong { font-size: 9px; }
+  .comparison-region small, .comparison-rate { font-size: 8px; }
   .search-wrap { width: 100%; margin-top: 34px; }
   .raw-frame { overflow-x: auto; padding: 22px 8px 4px; }
   .raw-summary { padding: 26px; }
