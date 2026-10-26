@@ -12,9 +12,22 @@ type ChartRange = {
   min: number
   max: number
 }
-
+type ComparisonSeries = {
+  id: string
+  name: string
+  values: DataValue[]
+}
 const YEARS = [...DATA_YEARS]
 const REGIONS = REGION_DATA
+const METROPOLITAN_CITY_REGIONS = PROVINCE_DATA.filter((region) =>
+  /(?:특별시|광역시)$/.test(region.name),
+).map((region) => ({
+  ...region,
+  id: `metropolitan/${region.name}`,
+  type: "시" as const,
+  province: "특별시·광역시",
+}))
+const CHART_REGIONS = [...REGIONS, ...METROPOLITAN_CITY_REGIONS]
 const REGION_TYPES: RegionType[] = ["시", "군", "구"]
 const DISTRICT_CITY_GROUPS = [
   {
@@ -86,11 +99,30 @@ const DISTRICT_CITIES = [
     REGIONS.filter((region) => region.type === "구").map(districtCity),
   ),
 ]
+const COUNTY_PROVINCES = [
+  ...new Set(
+    REGIONS.filter((region) => region.type === "군").map((region) => region.province),
+  ),
+]
 
 function districtCityColor(region: (typeof REGIONS)[number]) {
   const cityIndex = DISTRICT_CITIES.indexOf(districtCity(region))
   const hue = (cityIndex * 360) / DISTRICT_CITIES.length
   return `hsl(${hue} 72% 66%)`
+}
+
+function countyProvinceColor(region: (typeof REGIONS)[number]) {
+  const provinceIndex = COUNTY_PROVINCES.indexOf(region.province)
+  const hue = (provinceIndex * 360) / COUNTY_PROVINCES.length
+  return `hsl(${hue} 72% 66%)`
+}
+
+function metropolitanCityColor(region: { id: string }) {
+  const cityIndex = METROPOLITAN_CITY_REGIONS.findIndex(
+    (city) => city.id === region.id,
+  )
+  const hue = (cityIndex * 360) / METROPOLITAN_CITY_REGIONS.length
+  return `hsl(${hue} 72% 52%)`
 }
 
 const CHART = {
@@ -199,6 +231,7 @@ function Axes({ rawRange }: { rawRange?: ChartRange }) {
 }
 
 export default function App() {
+  const [comparisonType, setComparisonType] = useState<"시" | "도">("도")
   const [selectedLine, setSelectedLine] = useState("경기도/용인시")
   const [hoveredLine, setHoveredLine] = useState<string | null>(null)
   const [province, setProvince] = useState("서울특별시")
@@ -226,7 +259,54 @@ export default function App() {
   const nationalPrevious = NATIONAL_DATA.at(-2) ?? 0
   const nationalChange = nationalLatest - nationalPrevious
   const nationalChangeRate = (nationalChange / nationalPrevious) * 100
-  const selectedRegion = REGIONS.find((region) => region.id === selectedLine)
+  const selectedRegion = CHART_REGIONS.find((region) => region.id === selectedLine)
+
+  const comparisonRegions: ComparisonSeries[] =
+    comparisonType === "시"
+      ? CHART_REGIONS.filter((region) => region.type === "시").map(
+          ({ id, name, values }) => ({ id, name, values }),
+        )
+      : PROVINCE_DATA.filter((region) => region.name.endsWith("도")).map(
+          (region) => ({ ...region, id: region.name }),
+        )
+  const comparisonRows = comparisonRegions
+    .flatMap((region) => {
+      const firstIndex = region.values.findIndex((value) => value !== null)
+      let lastIndex = -1
+      for (let index = region.values.length - 1; index >= 0; index -= 1) {
+        if (region.values[index] !== null) {
+          lastIndex = index
+          break
+        }
+      }
+      const firstValue = region.values[firstIndex]
+      const lastValue = region.values[lastIndex]
+      if (
+        firstIndex < 0 ||
+        lastIndex < 0 ||
+        firstValue === null ||
+        firstValue === undefined ||
+        lastValue === null ||
+        lastValue === undefined ||
+        firstValue === 0
+      ) {
+        return []
+      }
+      return [
+        {
+          id: region.id,
+          name: region.name,
+          startYear: YEARS[firstIndex],
+          endYear: YEARS[lastIndex],
+          rate: ((lastValue - firstValue) / firstValue) * 100,
+        },
+      ]
+    })
+    .sort((first, second) => second.rate - first.rate)
+  const comparisonScale = Math.max(
+    ...comparisonRows.map((region) => Math.abs(region.rate)),
+    1,
+  )
 
   const chooseProvince = (item: string) => {
     setProvince(item)
@@ -312,7 +392,7 @@ export default function App() {
         </div>
 
         {REGION_TYPES.map((regionType) => {
-          const regions = REGIONS.filter((region) => region.type === regionType)
+          const regions = CHART_REGIONS.filter((region) => region.type === regionType)
           const selectedInGroup = selectedRegion?.type === regionType
 
           return (
@@ -341,9 +421,18 @@ export default function App() {
                         key={region.id}
                         d={pathFor(normalize(region.values))}
                         style={
-                          regionType === "구"
-                            ? { stroke: districtCityColor(region) }
-                            : undefined
+                          regionType === "시" &&
+                          METROPOLITAN_CITY_REGIONS.some(
+                            (city) => city.id === region.id,
+                          )
+                            ? {
+                              stroke: metropolitanCityColor(region),
+                              }
+                            : regionType === "구"
+                              ? { stroke: districtCityColor(region) }
+                              : regionType === "군"
+                                ? { stroke: countyProvinceColor(region) }
+                                : undefined
                         }
                         className={`data-line ${isActive ? "selected" : ""} ${
                           isHovered ? "hovered" : ""
@@ -365,9 +454,18 @@ export default function App() {
                     <span
                       className="label-line"
                       style={
-                        regionType === "구"
-                          ? { backgroundColor: districtCityColor(selectedRegion) }
-                          : undefined
+                        regionType === "시" &&
+                        METROPOLITAN_CITY_REGIONS.some(
+                          (city) => city.id === selectedRegion.id,
+                        )
+                          ? {
+                            backgroundColor: metropolitanCityColor(selectedRegion),
+                            }
+                          : regionType === "구"
+                            ? { backgroundColor: districtCityColor(selectedRegion) }
+                            : regionType === "군"
+                              ? { backgroundColor: countyProvinceColor(selectedRegion) }
+                              : undefined
                       }
                     />
                     <div>
@@ -389,9 +487,18 @@ export default function App() {
                     <span
                       className="legend-line"
                       style={
-                        regionType === "구"
-                          ? { backgroundColor: districtCityColor(region) }
-                          : undefined
+                        regionType === "시" &&
+                        METROPOLITAN_CITY_REGIONS.some(
+                          (city) => city.id === region.id,
+                        )
+                          ? {
+                              backgroundColor: metropolitanCityColor(region),
+                            }
+                          : regionType === "구"
+                            ? { backgroundColor: districtCityColor(region) }
+                            : regionType === "군"
+                              ? { backgroundColor: countyProvinceColor(region) }
+                              : undefined
                       }
                     />
                     {region.name}
@@ -515,6 +622,79 @@ export default function App() {
                 )
               })}
             </svg>
+          </div>
+        </div>
+      </section>
+
+      <section className="chart-section comparison-section">
+        <div className="section-heading">
+          <div>
+            <div className="section-number">03</div>
+            <p className="eyebrow">GROWTH RATE COMPARISON</p>
+            <h2>시·도 증감률 비교</h2>
+          </div>
+          <div className="tabs" role="group" aria-label="비교 지역 유형 선택">
+            {(["시", "도"] as const).map((item) => (
+              <button
+                key={item}
+                className={comparisonType === item ? "active" : ""}
+                onClick={() => setComparisonType(item)}
+                type="button"
+                aria-pressed={comparisonType === item}
+              >
+                {item}
+                <span>
+                  {item === "시"
+                    ? CHART_REGIONS.filter((region) => region.type === "시").length
+                    : PROVINCE_DATA.filter((region) => region.name.endsWith("도"))
+                        .length}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="chart-frame comparison-frame">
+          <div className="chart-meta comparison-meta">
+            <span>
+              첫 유효 연도—2025 증감률 · {comparisonRows.length}개 지역
+            </span>
+            <span>감소 ← 0 → 증가</span>
+          </div>
+          <div className="comparison-list">
+            {comparisonRows.map((region) => {
+              const isNegative = region.rate < 0
+              const barWidth =
+                (Math.abs(region.rate) / comparisonScale) * 50
+              return (
+                <div className="comparison-row" key={region.id}>
+                  <div className="comparison-region">
+                    <strong>{region.name}</strong>
+                    <small>
+                      {region.startYear}—{region.endYear}
+                    </small>
+                  </div>
+                  <div
+                    className="comparison-track"
+                    role="img"
+                    aria-label={`${region.name} 증감률 ${region.rate.toFixed(1)}%`}
+                  >
+                    <span
+                      className={`comparison-bar ${isNegative ? "negative" : ""}`}
+                      style={{
+                        left: isNegative ? `${50 - barWidth}%` : "50%",
+                        width: `${barWidth}%`,
+                      }}
+                    />
+                  </div>
+                  <strong
+                    className={`comparison-rate ${isNegative ? "down" : "up"}`}
+                  >
+                    {region.rate > 0 ? "+" : ""}
+                    {region.rate.toFixed(1)}%
+                  </strong>
+                </div>
+              )
+            })}
           </div>
         </div>
       </section>
