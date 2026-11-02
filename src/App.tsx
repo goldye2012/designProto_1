@@ -379,7 +379,7 @@ function SensorDashboard() {
 }
 
 export default function App() {
-  const [view, setView] = useState<"population" | "sensor">("population")
+  const [view, setView] = useState<"population" | "sensor">("sensor")
   const [type, setType] = useState<"전체" | RegionType>("전체")
   const [selectedLine, setSelectedLine] = useState("경기도/용인시")
   const [hoveredLine, setHoveredLine] = useState<string | null>(null)
@@ -433,17 +433,17 @@ export default function App() {
         <nav className="dashboard-nav" aria-label="대시보드 화면 선택">
           <button
             type="button"
-            className={view === "population" ? "active" : ""}
-            onClick={() => setView("population")}
-          >
-            인구 통계
-          </button>
-          <button
-            type="button"
             className={view === "sensor" ? "active" : ""}
             onClick={() => setView("sensor")}
           >
             센서 모니터링
+          </button>
+          <button
+            type="button"
+            className={view === "population" ? "active" : ""}
+            onClick={() => setView("population")}
+          >
+            인구 통계
           </button>
         </nav>
         <div className="data-status">
