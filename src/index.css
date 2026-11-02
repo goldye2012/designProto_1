@@ -162,6 +162,19 @@ footer {
   margin-right: 10px;
 }
 
+.status-dot.connecting,
+.status-dot.serial-connecting {
+  background: var(--muted);
+  box-shadow: none;
+}
+
+.status-dot.offline,
+.status-dot.error,
+.status-dot.serial-error {
+  background: var(--red);
+  box-shadow: 0 0 12px rgba(255, 101, 79, 0.55);
+}
+
 .intro {
   min-height: 410px;
   display: grid;
@@ -651,6 +664,21 @@ footer {
   filter: drop-shadow(0 0 8px rgba(200, 255, 50, 0.3));
 }
 
+.connection-pulse.connecting,
+.connection-pulse.serial-connecting {
+  border-color: var(--muted);
+  background: var(--muted);
+  filter: none;
+}
+
+.connection-pulse.offline,
+.connection-pulse.error,
+.connection-pulse.serial-error {
+  border-color: var(--red);
+  background: var(--red);
+  filter: drop-shadow(0 0 8px rgba(255, 101, 79, 0.3));
+}
+
 .sensor-connection div:nth-child(2) {
   display: flex;
   justify-content: space-between;
@@ -667,6 +695,24 @@ footer {
   color: var(--accent);
   font: 400 10px/1 'DM Mono', monospace;
   letter-spacing: 0.08em;
+}
+
+.sensor-connection.connecting strong {
+  color: var(--muted);
+}
+
+.sensor-connection.serial-connecting strong {
+  color: var(--muted);
+}
+
+.sensor-connection.serial-live strong {
+  color: var(--accent);
+}
+
+.sensor-connection.offline strong,
+.sensor-connection.error strong,
+.sensor-connection.serial-error strong {
+  color: var(--red);
 }
 
 .sensor-dashboard {
@@ -697,6 +743,67 @@ footer {
   color: var(--muted);
   font: 400 9px/1 'DM Mono', monospace;
   letter-spacing: 0.06em;
+}
+
+.sensor-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.serial-connect-button {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid rgba(200, 255, 50, 0.45);
+  background: rgba(200, 255, 50, 0.08);
+  color: var(--accent);
+  font: 400 10px/1 'DM Mono', monospace;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.serial-connect-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(200, 255, 50, 0.15);
+}
+
+.serial-connect-button.connected {
+  border-color: var(--dim);
+  background: transparent;
+  color: var(--muted);
+}
+
+.serial-connect-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.mock-badge.live {
+  border-color: rgba(200, 255, 50, 0.35);
+  color: var(--accent);
+}
+
+.mock-badge.serial-live {
+  border-color: rgba(200, 255, 50, 0.35);
+  color: var(--accent);
+}
+
+.mock-badge.offline,
+.mock-badge.error,
+.mock-badge.serial-error {
+  border-color: rgba(255, 101, 79, 0.35);
+  color: var(--red);
+}
+
+.sensor-reading-card {
+  min-height: 250px;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  border: 1px solid var(--rule);
+  background:
+    linear-gradient(180deg, rgba(200, 255, 50, 0.06), transparent 52%),
+    rgba(10, 10, 10, 0.82);
 }
 
 .sensor-cards {
@@ -771,6 +878,11 @@ footer {
   box-shadow: 0 0 8px rgba(200, 255, 50, 0.5);
 }
 
+.sensor-card-dot.active {
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(200, 255, 50, 0.5);
+}
+
 .sensor-value {
   display: flex;
   align-items: flex-end;
@@ -800,6 +912,17 @@ footer {
 
 .sensor-card-footer strong {
   font: 400 9px/1 'DM Mono', monospace;
+}
+
+.sensor-error {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-left: 2px solid var(--red);
+  background: rgba(255, 101, 79, 0.06);
+  color: #ff9a8b;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .sensor-chart-section {
@@ -891,6 +1014,19 @@ footer {
   margin-left: 4px;
   color: var(--muted);
   font-size: 8px;
+}
+
+.sensor-chart-empty {
+  position: absolute;
+  top: 54px;
+  right: 0;
+  bottom: 36px;
+  left: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  pointer-events: none;
 }
 
 .sensor-info-strip {

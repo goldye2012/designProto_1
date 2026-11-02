@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { createClient } from "@supabase/supabase-js"
 import {
   DATA_YEARS,
   NATIONAL_DATA,
@@ -15,63 +16,37 @@ type ChartRange = {
 
 const YEARS = [...DATA_YEARS]
 const REGIONS = REGION_DATA
-const SENSOR_TIMES = [
-  "00:00",
-  "02:00",
-  "04:00",
-  "06:00",
-  "08:00",
-  "10:00",
-  "12:00",
-  "14:00",
-  "16:00",
-  "18:00",
-  "20:00",
-  "22:00",
-  "24:00",
-]
+const READINGS_LIMIT = 100
 
-const SENSOR_METRICS = [
-  {
-    id: "temperature",
-    name: "온도",
-    unit: "°C",
-    value: 24.8,
-    change: 1.2,
-    range: "18—28°C",
-    values: [
-      21.2, 20.5, 19.8, 19.4, 20.7, 22.3, 23.9, 25.1, 26.2, 25.8, 25.3, 24.9,
-      24.8,
-    ],
-  },
-  {
-    id: "humidity",
-    name: "습도",
-    unit: "%",
-    value: 48,
-    change: -3.4,
-    range: "40—60%",
-    values: [55, 57, 58, 59, 56, 52, 49, 46, 44, 45, 47, 48, 48],
-  },
-  {
-    id: "co2",
-    name: "이산화탄소",
-    unit: "ppm",
-    value: 612,
-    change: 8.1,
-    range: "400—1,000ppm",
-    values: [470, 455, 448, 460, 510, 580, 640, 710, 760, 735, 680, 635, 612],
-  },
-  {
-    id: "pm25",
-    name: "초미세먼지",
-    unit: "㎍/㎥",
-    value: 12,
-    change: -8.6,
-    range: "0—35㎍/㎥",
-    values: [18, 17, 16, 15, 17, 19, 18, 16, 14, 13, 12, 11, 12],
-  },
-] as const
+type Reading = {
+  value: number
+  created_at: string
+}
+
+type ConnectionStatus = "connecting" | "live" | "offline" | "error" | "serial-connecting" | "serial-live" | "serial-error"
+const CONNECTION_LABELS: Record<ConnectionStatus, string> = {
+  connecting: "연결 중",
+  live: "실시간 연결",
+  offline: "연결 끊김",
+  error: "연결 오류",
+  "serial-connecting": "시리얼 연결 중",
+  "serial-live": "시리얼 연결됨",
+  "serial-error": "시리얼 오류",
+}
+
+type WebSerialPort = {
+  readable: ReadableStream<Uint8Array> | null
+  open(options: { baudRate: number }): Promise<void>
+  close(): Promise<void>
+}
+
+type WebSerialApi = {
+  requestPort(): Promise<WebSerialPort>
+}
+
+function getWebSerialApi(): WebSerialApi | undefined {
+  return (navigator as Navigator & { serial?: WebSerialApi }).serial
+}
 
 const CHART = {
   width: 920,
@@ -103,7 +78,8 @@ function pathFor(values: DataValue[], range?: ChartRange) {
         drawing = false
         return ""
       }
-      const x = CHART.left + (index / (values.length - 1)) * innerWidth
+      const x =
+        CHART.left + (index / Math.max(values.length - 1, 1)) * innerWidth
       const y = CHART.top + (1 - (value - min) / (max - min)) * innerHeight
       const command = drawing ? "L" : "M"
       drawing = true
@@ -178,26 +154,305 @@ function Axes({ rawRange }: { rawRange?: ChartRange }) {
   )
 }
 
-function SensorDashboard() {
-  const [selectedMetricId, setSelectedMetricId] = useState("temperature")
-  const selectedMetric =
-    SENSOR_METRICS.find((metric) => metric.id === selectedMetricId) ??
-    SENSOR_METRICS[0]
-  const minValue = Math.min(...selectedMetric.values)
-  const maxValue = Math.max(...selectedMetric.values)
-  const padding = Math.max((maxValue - minValue) * 0.2, 1)
+function SensorDashboard({
+  onConnectionChange,
+}: {
+  onConnectionChange: (status: ConnectionStatus) => void
+}) {
+  const [readings, setReadings] = useState<Reading[]>([])
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("connecting")
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+  const [readingsError, setReadingsError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [serialMode, setSerialMode] = useState(false)
+  const [serialStatus, setSerialStatus] =
+    useState<"idle" | "connecting" | "connected" | "error">("idle")
+  const [serialError, setSerialError] = useState<string | null>(null)
+  const serialModeRef = useRef(false)
+  const serialReaderRef =
+    useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
+  const refreshReadingsRef = useRef<() => void>(() => {})
+  const displayConnectionStatus: ConnectionStatus =
+    serialStatus === "connecting"
+      ? "serial-connecting"
+      : serialStatus === "connected"
+        ? "serial-live"
+        : serialStatus === "error"
+          ? "serial-error"
+          : connectionStatus
+
+  useEffect(() => {
+    onConnectionChange(displayConnectionStatus)
+  }, [displayConnectionStatus, onConnectionChange])
+
+  useEffect(() => {
+    const url = import.meta.env.VITE_SUPABASE_URL
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY
+    if (!url || !key) {
+      setConnectionStatus("error")
+      setConnectionError(
+        "VITE_SUPABASE_URL 또는 VITE_SUPABASE_ANON_KEY가 .env에 없습니다.",
+      )
+      setIsLoading(false)
+      return
+    }
+
+    const supabase = createClient(url, key)
+    let active = true
+    let requestId = 0
+
+    const loadReadings = async () => {
+      const currentRequestId = ++requestId
+      try {
+        const { data, error } = await supabase
+          .from("readings")
+          .select("value, created_at")
+          .order("created_at", { ascending: false })
+          .limit(READINGS_LIMIT)
+
+        if (
+          !active ||
+          serialModeRef.current ||
+          currentRequestId !== requestId
+        ) {
+          return
+        }
+        if (error) {
+          setReadingsError(error.message)
+          setIsLoading(false)
+          return
+        }
+
+        setReadings((data ?? []).reverse())
+        setReadingsError(null)
+        setIsLoading(false)
+      } catch (error) {
+        if (!active || currentRequestId !== requestId) return
+        setReadingsError(error instanceof Error ? error.message : String(error))
+        setIsLoading(false)
+      }
+    }
+
+    refreshReadingsRef.current = () => {
+      void loadReadings()
+    }
+
+    const channel = supabase
+      .channel("readings-dashboard")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "readings" },
+        () => {
+          if (!serialModeRef.current) void loadReadings()
+        },
+      )
+      .subscribe((status, error) => {
+        if (!active) return
+
+        if (status === "SUBSCRIBED") {
+          setConnectionStatus("live")
+          setConnectionError(null)
+          void loadReadings()
+        } else if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          setConnectionStatus(status === "CLOSED" ? "offline" : "error")
+          setConnectionError(error?.message ?? `Realtime 상태: ${status}`)
+        }
+      })
+
+    return () => {
+      active = false
+      requestId += 1
+      refreshReadingsRef.current = () => {}
+      void supabase.removeChannel(channel)
+    }
+  }, [])
+
+  useEffect(
+    () => () => {
+      serialModeRef.current = false
+      void serialReaderRef.current?.cancel()
+    },
+    [],
+  )
+
+  const startSerial = async () => {
+    const serial = getWebSerialApi()
+    if (!serial) {
+      setSerialStatus("error")
+      setSerialError(
+        "이 브라우저는 Web Serial API를 지원하지 않습니다. Chrome 또는 Edge에서 HTTPS/localhost로 열어 주세요.",
+      )
+      return
+    }
+
+    setSerialStatus("connecting")
+    setSerialError(null)
+    let port: WebSerialPort | null = null
+
+    try {
+      const openedPort = await serial.requestPort()
+      port = openedPort
+      await openedPort.open({ baudRate: 9600 })
+      if (!openedPort.readable) {
+        throw new Error("선택한 시리얼 포트에서 데이터를 읽을 수 없습니다.")
+      }
+
+      const reader = openedPort.readable.getReader()
+      serialReaderRef.current = reader
+      serialModeRef.current = true
+      setSerialMode(true)
+      setSerialStatus("connected")
+      setReadings([])
+      setReadingsError(null)
+      setIsLoading(false)
+
+      const readSerial = async () => {
+        const decoder = new TextDecoder()
+        let pendingLine = ""
+        let failed = false
+
+        const appendReading = (line: string) => {
+          const trimmed = line.trim()
+          if (!trimmed) return
+
+          const value = Number(trimmed)
+          if (!Number.isFinite(value)) {
+            setSerialError(`숫자가 아닌 시리얼 값을 건너뜁니다: ${trimmed}`)
+            return
+          }
+
+          setSerialError(null)
+          setReadings((current) =>
+            [...current, { value, created_at: new Date().toISOString() }].slice(
+              -READINGS_LIMIT,
+            ),
+          )
+        }
+
+        try {
+          while (true) {
+            const { value, done } = await reader.read()
+            if (done) break
+
+            pendingLine += decoder.decode(value, { stream: true })
+            const lines = pendingLine.split(/\r?\n/)
+            pendingLine = lines.pop() ?? ""
+            lines.forEach(appendReading)
+          }
+
+          pendingLine += decoder.decode()
+          appendReading(pendingLine)
+        } catch (error) {
+          failed = true
+          serialModeRef.current = false
+          setSerialMode(false)
+          setSerialStatus("error")
+          setSerialError(error instanceof Error ? error.message : String(error))
+        } finally {
+          reader.releaseLock()
+          try {
+            if (openedPort.readable) await openedPort.close()
+          } catch (error) {
+            failed = true
+            serialModeRef.current = false
+            setSerialMode(false)
+            setSerialStatus("error")
+            setSerialError(
+              error instanceof Error ? error.message : String(error),
+            )
+          }
+          if (serialReaderRef.current === reader) {
+            serialReaderRef.current = null
+            serialModeRef.current = false
+            setSerialMode(false)
+            if (!failed) setSerialStatus("idle")
+            refreshReadingsRef.current()
+          }
+        }
+      }
+
+      void readSerial()
+    } catch (error) {
+      if (port?.readable) {
+        try {
+          await port.close()
+        } catch (closeError) {
+          setSerialError(
+            `${
+              error instanceof Error ? error.message : String(error)
+            } (포트 종료 실패: ${
+              closeError instanceof Error
+                ? closeError.message
+                : String(closeError)
+            })`,
+          )
+          setSerialStatus("error")
+          return
+        }
+      }
+      setSerialStatus("error")
+      setSerialError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const stopSerial = async () => {
+    const reader = serialReaderRef.current
+    if (!reader) return
+
+    setSerialError(null)
+    try {
+      await reader.cancel()
+    } catch (error) {
+      setSerialStatus("error")
+      setSerialError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const values = readings.map((reading) => reading.value)
+  const minValue = values.length ? Math.min(...values) : 0
+  const maxValue = values.length ? Math.max(...values) : 1
+  const padding = Math.max(
+    (maxValue - minValue) * 0.15,
+    Math.abs(minValue) * 0.05,
+    1,
+  )
   const sensorRange = { min: minValue - padding, max: maxValue + padding }
   const ticks = [
     sensorRange.max,
-    sensorRange.min + (sensorRange.max - sensorRange.min) / 2,
+    (sensorRange.min + sensorRange.max) / 2,
     sensorRange.min,
   ]
-  const latestY =
-    CHART.top +
-    (1 -
-      (selectedMetric.values.at(-1)! - sensorRange.min) /
-        (sensorRange.max - sensorRange.min)) *
-      (CHART.height - CHART.top - CHART.bottom)
+  const latestReading = readings.at(-1)
+  const latestY = latestReading
+    ? CHART.top +
+      (1 -
+        (latestReading.value - sensorRange.min) /
+          (sensorRange.max - sensorRange.min)) *
+        (CHART.height - CHART.top - CHART.bottom)
+    : null
+  const connectionLabel = CONNECTION_LABELS[displayConnectionStatus]
+  const formatValue = (value: number) =>
+    value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  const formatTimestamp = (value: string) =>
+    new Date(value).toLocaleString("ko-KR", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+  const formatAxisTimestamp = (value: string) =>
+    new Date(value).toLocaleString("ko-KR", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
 
   return (
     <>
@@ -210,81 +465,133 @@ function SensorDashboard() {
             감지하다
           </h1>
         </div>
-        <div className="sensor-connection">
-          <div className="connection-pulse" />
+        <div className={`sensor-connection ${displayConnectionStatus}`}>
+          <div
+            className={`connection-pulse ${displayConnectionStatus}`}
+            aria-hidden="true"
+          />
           <div>
             <span>센서 상태</span>
-            <strong>ONLINE</strong>
+            <strong>{connectionLabel}</strong>
           </div>
-          <small>마지막 업데이트 · 방금 전</small>
+          <small>
+            {latestReading
+              ? `마지막 기록 · ${formatTimestamp(latestReading.created_at)}`
+              : "기록 대기 중"}
+          </small>
         </div>
       </section>
 
       <section className="sensor-dashboard">
         <div className="sensor-heading">
           <div>
-            <p className="eyebrow">CURRENT READINGS</p>
+            <p className="eyebrow">LATEST READING</p>
             <h2>현재 센서값</h2>
           </div>
-          <span className="mock-badge">예시 데이터</span>
+          <div className="sensor-heading-actions">
+            <span className={`mock-badge ${displayConnectionStatus}`}>
+              {connectionLabel}
+            </span>
+            <button
+              className={`serial-connect-button ${
+                serialStatus === "connected" ? "connected" : ""
+              }`}
+              type="button"
+              onClick={serialStatus === "connected" ? stopSerial : startSerial}
+              disabled={serialStatus === "connecting"}
+            >
+              {serialStatus === "connecting"
+                ? "연결 중..."
+                : serialStatus === "connected"
+                  ? "시리얼 연결 해제"
+                  : "시리얼 연결"}
+            </button>
+          </div>
         </div>
 
-        <div className="sensor-cards">
-          {SENSOR_METRICS.map((metric, index) => (
-            <button
-              type="button"
-              key={metric.id}
-              className={`sensor-card ${
-                selectedMetric.id === metric.id ? "active" : ""
+        <div className="sensor-reading-card">
+          <span className="sensor-card-index">
+            {serialMode ? "ARDUINO SERIAL · VALUE" : "PUBLIC.READINGS · VALUE"}
+          </span>
+          <div className="sensor-card-title">
+            <span>최신 측정값</span>
+            <span
+              className={`sensor-card-dot ${
+                displayConnectionStatus === "live" ||
+                displayConnectionStatus === "serial-live"
+                  ? "active"
+                  : ""
               }`}
-              onClick={() => setSelectedMetricId(metric.id)}
-            >
-              <span className="sensor-card-index">0{index + 1}</span>
-              <div className="sensor-card-title">
-                <span>{metric.name}</span>
-                <span className="sensor-card-dot" />
-              </div>
-              <div className="sensor-value">
-                <strong>{metric.value}</strong>
-                <span>{metric.unit}</span>
-              </div>
-              <div className="sensor-card-footer">
-                <span>권장 {metric.range}</span>
-                <strong className={metric.change < 0 ? "down" : "up"}>
-                  {metric.change > 0 ? "+" : ""}
-                  {metric.change}%
-                </strong>
-              </div>
-            </button>
-          ))}
+            />
+          </div>
+          <div className="sensor-value">
+            <strong>
+              {latestReading ? formatValue(latestReading.value) : "--"}
+            </strong>
+          </div>
+          <div className="sensor-card-footer">
+            <span>
+              {latestReading
+                ? formatTimestamp(latestReading.created_at)
+                : serialMode
+                  ? "시리얼 값을 기다리는 중입니다"
+                  : isLoading
+                    ? "데이터를 불러오는 중입니다"
+                    : "표시할 기록이 없습니다"}
+            </span>
+            <strong>
+              {readings.length}/{READINGS_LIMIT}건
+            </strong>
+          </div>
         </div>
+        {connectionError && (
+          <p className="sensor-error" role="alert">
+            Realtime 연결 오류: {connectionError}
+          </p>
+        )}
+        {serialError && (
+          <p className="sensor-error" role="alert">
+            시리얼 오류: {serialError}
+          </p>
+        )}
+        {readingsError && (
+          <p className="sensor-error" role="alert">
+            readings 조회 오류: {readingsError}
+          </p>
+        )}
       </section>
 
       <section className="sensor-dashboard sensor-chart-section">
         <div className="sensor-heading">
           <div>
-            <p className="eyebrow">24 HOUR HISTORY</p>
-            <h2>{selectedMetric.name} 변화 추이</h2>
+            <p className="eyebrow">LATEST {READINGS_LIMIT} RECORDS</p>
+            <h2>센서값 변화 추이</h2>
           </div>
           <div className="sensor-chart-value">
             <span>현재</span>
-            <strong>{selectedMetric.value}</strong>
-            <small>{selectedMetric.unit}</small>
+            <strong>
+              {latestReading ? formatValue(latestReading.value) : "--"}
+            </strong>
           </div>
         </div>
 
         <div className="sensor-chart-frame">
           <div className="chart-meta">
             <span>
-              {selectedMetric.name} · {selectedMetric.unit}
+              {serialMode ? "Arduino serial" : "readings.value"} · 최근{" "}
+              {readings.length}건
             </span>
-            <span>최근 24시간</span>
+            <span>
+              {readings.length
+                ? `${formatTimestamp(readings[0].created_at)} — ${formatTimestamp(readings[readings.length - 1].created_at)}`
+                : "기록 없음"}
+            </span>
           </div>
           <svg
             className="line-chart sensor-chart"
             viewBox={`0 0 ${CHART.width} ${CHART.height}`}
             role="img"
-            aria-label={`${selectedMetric.name} 최근 24시간 변화 그래프`}
+            aria-label={`최근 ${readings.length}개 센서값 변화 그래프`}
           >
             <g className="axes">
               {ticks.map((tick, index) => {
@@ -300,78 +607,80 @@ function SensorDashboard() {
                       y2={y}
                     />
                     <text x={CHART.left - 12} y={y + 4} textAnchor="end">
-                      {tick.toFixed(
-                        selectedMetric.id === "temperature" ? 1 : 0,
-                      )}
+                      {formatValue(tick)}
                     </text>
                   </g>
                 )
               })}
-              {SENSOR_TIMES.map((time, index) => {
-                const x =
-                  CHART.left +
-                  (index / (SENSOR_TIMES.length - 1)) *
-                    (CHART.width - CHART.left - CHART.right)
-                return (
-                  <text
-                    key={time}
-                    x={x}
-                    y={CHART.height - 10}
-                    textAnchor="middle"
-                  >
-                    {index % 2 === 0 ? time : ""}
-                  </text>
-                )
-              })}
+              {readings.length > 0 &&
+                [0, 0.25, 0.5, 0.75, 1].map((position) => {
+                  const index = Math.round(position * (readings.length - 1))
+                  const x =
+                    CHART.left +
+                    position * (CHART.width - CHART.left - CHART.right)
+                  return (
+                    <text
+                      key={position}
+                      x={x}
+                      y={CHART.height - 10}
+                      textAnchor="middle"
+                    >
+                      {formatAxisTimestamp(readings[index].created_at)}
+                    </text>
+                  )
+                })}
             </g>
             <path
-              d={pathFor([...selectedMetric.values], sensorRange)}
+              d={pathFor(values, sensorRange)}
               className="sensor-line-glow"
             />
-            <path
-              d={pathFor([...selectedMetric.values], sensorRange)}
-              className="sensor-line"
-            />
-            <line
-              className="sensor-now-line"
-              x1={CHART.width - CHART.right}
-              y1={CHART.top}
-              x2={CHART.width - CHART.right}
-              y2={CHART.height - CHART.bottom}
-            />
-            <circle
-              className="sensor-last-dot"
-              cx={CHART.width - CHART.right}
-              cy={latestY}
-              r="6"
-            />
+            <path d={pathFor(values, sensorRange)} className="sensor-line" />
+            {latestY !== null && (
+              <>
+                <line
+                  className="sensor-now-line"
+                  x1={CHART.width - CHART.right}
+                  y1={CHART.top}
+                  x2={CHART.width - CHART.right}
+                  y2={CHART.height - CHART.bottom}
+                />
+                <circle
+                  className="sensor-last-dot"
+                  cx={CHART.width - CHART.right}
+                  cy={latestY}
+                  r="6"
+                />
+              </>
+            )}
           </svg>
-          <div className="sensor-annotation">
-            <span>NOW</span>
-            <strong>
-              {selectedMetric.value}
-              <small>{selectedMetric.unit}</small>
-            </strong>
-          </div>
+          {readings.length === 0 && (
+            <div className="sensor-chart-empty">
+              {serialMode
+                ? "시리얼 값을 기다리는 중입니다"
+                : isLoading
+                  ? "데이터를 불러오는 중입니다"
+                  : "표시할 데이터가 없습니다"}
+            </div>
+          )}
         </div>
       </section>
 
       <section className="sensor-info-strip">
         <div>
-          <span>측정 위치</span>
-          <strong>서울 · 메인 오피스</strong>
+          <span>데이터 소스</span>
+          <strong>{serialMode ? "Arduino serial" : "public.readings"}</strong>
         </div>
         <div>
-          <span>센서 ID</span>
-          <strong>ENV-A01-2408</strong>
+          <span>표시 구간</span>
+          <strong>최근 100건</strong>
         </div>
         <div>
-          <span>측정 주기</span>
-          <strong>60초</strong>
+          <span>저장 방식</span>
+          <strong>{serialMode ? "DB 저장 안 함" : "Supabase 조회"}</strong>
         </div>
         <div>
-          <span>수집 품질</span>
-          <strong className="up">99.8%</strong>
+          <span>현재 로드</span>
+          <strong>{readings.length}건</strong>
         </div>
       </section>
     </>
@@ -380,6 +689,8 @@ function SensorDashboard() {
 
 export default function App() {
   const [view, setView] = useState<"population" | "sensor">("sensor")
+  const [sensorConnection, setSensorConnection] =
+    useState<ConnectionStatus>("connecting")
   const [type, setType] = useState<"전체" | RegionType>("전체")
   const [selectedLine, setSelectedLine] = useState("경기도/용인시")
   const [hoveredLine, setHoveredLine] = useState<string | null>(null)
@@ -447,10 +758,16 @@ export default function App() {
           </button>
         </nav>
         <div className="data-status">
-          <span className="status-dot" />
+          <span
+            className={`status-dot ${
+              view === "sensor" ? sensorConnection : ""
+            }`}
+          />
           {view === "population"
             ? "첨부 통계 원본 · 2025년 기준"
-            : "SENSOR 01 · 연결됨"}
+            : `${
+                sensorConnection.startsWith("serial-") ? "SERIAL" : "SUPABASE"
+              } · ${CONNECTION_LABELS[sensorConnection]}`}
         </div>
       </header>
 
@@ -709,7 +1026,7 @@ export default function App() {
           </section>
         </>
       ) : (
-        <SensorDashboard />
+        <SensorDashboard onConnectionChange={setSensorConnection} />
       )}
 
       <footer>
@@ -719,7 +1036,7 @@ export default function App() {
         <span>
           {view === "population"
             ? "데이터 출처 · 사용자 제공 population.csv"
-            : "센서 데이터 · 데모 모드"}
+            : "데이터 출처 · Supabase public.readings"}
         </span>
       </footer>
     </main>
