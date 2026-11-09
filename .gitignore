@@ -19,3 +19,7 @@ logs/
 # beside it.
 /.plugins/
 /.opencode-skills/
+.env
+.DS_Store
+.DS_Store
+.github/workflows/deploy.yml

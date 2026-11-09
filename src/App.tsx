@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { createClient } from "@supabase/supabase-js"
 import {
   DATA_YEARS,
@@ -23,29 +23,12 @@ type Reading = {
   created_at: string
 }
 
-type ConnectionStatus = "connecting" | "live" | "offline" | "error" | "serial-connecting" | "serial-live" | "serial-error"
+type ConnectionStatus = "connecting" | "live" | "offline" | "error"
 const CONNECTION_LABELS: Record<ConnectionStatus, string> = {
   connecting: "연결 중",
   live: "실시간 연결",
   offline: "연결 끊김",
   error: "연결 오류",
-  "serial-connecting": "시리얼 연결 중",
-  "serial-live": "시리얼 연결됨",
-  "serial-error": "시리얼 오류",
-}
-
-type WebSerialPort = {
-  readable: ReadableStream<Uint8Array> | null
-  open(options: { baudRate: number }): Promise<void>
-  close(): Promise<void>
-}
-
-type WebSerialApi = {
-  requestPort(): Promise<WebSerialPort>
-}
-
-function getWebSerialApi(): WebSerialApi | undefined {
-  return (navigator as Navigator & { serial?: WebSerialApi }).serial
 }
 
 const CHART = {
@@ -159,32 +142,18 @@ function SensorDashboard({
 }: {
   onConnectionChange: (status: ConnectionStatus) => void
 }) {
-  const [readings, setReadings] = useState<Reading[]>([])
+  const [liveReadings, setReadings] = useState<Reading[]>([])
+  const [pausedReadings, setPausedReadings] = useState<Reading[] | null>(null)
+  const readings = pausedReadings ?? liveReadings
+  const isPaused = pausedReadings !== null
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("connecting")
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const [readingsError, setReadingsError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [serialMode, setSerialMode] = useState(false)
-  const [serialStatus, setSerialStatus] =
-    useState<"idle" | "connecting" | "connected" | "error">("idle")
-  const [serialError, setSerialError] = useState<string | null>(null)
-  const serialModeRef = useRef(false)
-  const serialReaderRef =
-    useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
-  const refreshReadingsRef = useRef<() => void>(() => {})
-  const displayConnectionStatus: ConnectionStatus =
-    serialStatus === "connecting"
-      ? "serial-connecting"
-      : serialStatus === "connected"
-        ? "serial-live"
-        : serialStatus === "error"
-          ? "serial-error"
-          : connectionStatus
-
   useEffect(() => {
-    onConnectionChange(displayConnectionStatus)
-  }, [displayConnectionStatus, onConnectionChange])
+    onConnectionChange(connectionStatus)
+  }, [connectionStatus, onConnectionChange])
 
   useEffect(() => {
     const url = import.meta.env.VITE_SUPABASE_URL
@@ -211,13 +180,7 @@ function SensorDashboard({
           .order("created_at", { ascending: false })
           .limit(READINGS_LIMIT)
 
-        if (
-          !active ||
-          serialModeRef.current ||
-          currentRequestId !== requestId
-        ) {
-          return
-        }
+        if (!active || currentRequestId !== requestId) return
         if (error) {
           setReadingsError(error.message)
           setIsLoading(false)
@@ -234,17 +197,13 @@ function SensorDashboard({
       }
     }
 
-    refreshReadingsRef.current = () => {
-      void loadReadings()
-    }
-
     const channel = supabase
       .channel("readings-dashboard")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "readings" },
         () => {
-          if (!serialModeRef.current) void loadReadings()
+          void loadReadings()
         },
       )
       .subscribe((status, error) => {
@@ -267,151 +226,9 @@ function SensorDashboard({
     return () => {
       active = false
       requestId += 1
-      refreshReadingsRef.current = () => {}
       void supabase.removeChannel(channel)
     }
   }, [])
-
-  useEffect(
-    () => () => {
-      serialModeRef.current = false
-      void serialReaderRef.current?.cancel()
-    },
-    [],
-  )
-
-  const startSerial = async () => {
-    const serial = getWebSerialApi()
-    if (!serial) {
-      setSerialStatus("error")
-      setSerialError(
-        "이 브라우저는 Web Serial API를 지원하지 않습니다. Chrome 또는 Edge에서 HTTPS/localhost로 열어 주세요.",
-      )
-      return
-    }
-
-    setSerialStatus("connecting")
-    setSerialError(null)
-    let port: WebSerialPort | null = null
-
-    try {
-      const openedPort = await serial.requestPort()
-      port = openedPort
-      await openedPort.open({ baudRate: 9600 })
-      if (!openedPort.readable) {
-        throw new Error("선택한 시리얼 포트에서 데이터를 읽을 수 없습니다.")
-      }
-
-      const reader = openedPort.readable.getReader()
-      serialReaderRef.current = reader
-      serialModeRef.current = true
-      setSerialMode(true)
-      setSerialStatus("connected")
-      setReadings([])
-      setReadingsError(null)
-      setIsLoading(false)
-
-      const readSerial = async () => {
-        const decoder = new TextDecoder()
-        let pendingLine = ""
-        let failed = false
-
-        const appendReading = (line: string) => {
-          const trimmed = line.trim()
-          if (!trimmed) return
-
-          const value = Number(trimmed)
-          if (!Number.isFinite(value)) {
-            setSerialError(`숫자가 아닌 시리얼 값을 건너뜁니다: ${trimmed}`)
-            return
-          }
-
-          setSerialError(null)
-          setReadings((current) =>
-            [...current, { value, created_at: new Date().toISOString() }].slice(
-              -READINGS_LIMIT,
-            ),
-          )
-        }
-
-        try {
-          while (true) {
-            const { value, done } = await reader.read()
-            if (done) break
-
-            pendingLine += decoder.decode(value, { stream: true })
-            const lines = pendingLine.split(/\r?\n/)
-            pendingLine = lines.pop() ?? ""
-            lines.forEach(appendReading)
-          }
-
-          pendingLine += decoder.decode()
-          appendReading(pendingLine)
-        } catch (error) {
-          failed = true
-          serialModeRef.current = false
-          setSerialMode(false)
-          setSerialStatus("error")
-          setSerialError(error instanceof Error ? error.message : String(error))
-        } finally {
-          reader.releaseLock()
-          try {
-            if (openedPort.readable) await openedPort.close()
-          } catch (error) {
-            failed = true
-            serialModeRef.current = false
-            setSerialMode(false)
-            setSerialStatus("error")
-            setSerialError(
-              error instanceof Error ? error.message : String(error),
-            )
-          }
-          if (serialReaderRef.current === reader) {
-            serialReaderRef.current = null
-            serialModeRef.current = false
-            setSerialMode(false)
-            if (!failed) setSerialStatus("idle")
-            refreshReadingsRef.current()
-          }
-        }
-      }
-
-      void readSerial()
-    } catch (error) {
-      if (port?.readable) {
-        try {
-          await port.close()
-        } catch (closeError) {
-          setSerialError(
-            `${
-              error instanceof Error ? error.message : String(error)
-            } (포트 종료 실패: ${
-              closeError instanceof Error
-                ? closeError.message
-                : String(closeError)
-            })`,
-          )
-          setSerialStatus("error")
-          return
-        }
-      }
-      setSerialStatus("error")
-      setSerialError(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  const stopSerial = async () => {
-    const reader = serialReaderRef.current
-    if (!reader) return
-
-    setSerialError(null)
-    try {
-      await reader.cancel()
-    } catch (error) {
-      setSerialStatus("error")
-      setSerialError(error instanceof Error ? error.message : String(error))
-    }
-  }
 
   const values = readings.map((reading) => reading.value)
   const minValue = values.length ? Math.min(...values) : 0
@@ -435,7 +252,7 @@ function SensorDashboard({
           (sensorRange.max - sensorRange.min)) *
         (CHART.height - CHART.top - CHART.bottom)
     : null
-  const connectionLabel = CONNECTION_LABELS[displayConnectionStatus]
+  const connectionLabel = CONNECTION_LABELS[connectionStatus]
   const formatValue = (value: number) =>
     value.toLocaleString(undefined, { maximumFractionDigits: 2 })
   const formatTimestamp = (value: string) =>
@@ -465,9 +282,9 @@ function SensorDashboard({
             감지하다
           </h1>
         </div>
-        <div className={`sensor-connection ${displayConnectionStatus}`}>
+        <div className={`sensor-connection ${connectionStatus}`}>
           <div
-            className={`connection-pulse ${displayConnectionStatus}`}
+            className={`connection-pulse ${connectionStatus}`}
             aria-hidden="true"
           />
           <div>
@@ -489,38 +306,31 @@ function SensorDashboard({
             <h2>현재 센서값</h2>
           </div>
           <div className="sensor-heading-actions">
-            <span className={`mock-badge ${displayConnectionStatus}`}>
-              {connectionLabel}
-            </span>
             <button
-              className={`serial-connect-button ${
-                serialStatus === "connected" ? "connected" : ""
-              }`}
               type="button"
-              onClick={serialStatus === "connected" ? stopSerial : startSerial}
-              disabled={serialStatus === "connecting"}
+              className={`sensor-pause-button ${isPaused ? "paused" : ""}`}
+              aria-pressed={isPaused}
+              onClick={() =>
+                setPausedReadings(isPaused ? null : liveReadings)
+              }
             >
-              {serialStatus === "connecting"
-                ? "연결 중..."
-                : serialStatus === "connected"
-                  ? "시리얼 연결 해제"
-                  : "시리얼 연결"}
+              {isPaused ? "▶ 재개" : "■ 정지"}
             </button>
+            <span
+              className={`mock-badge ${isPaused ? "offline" : connectionStatus}`}
+            >
+              {isPaused ? "일시정지" : connectionLabel}
+            </span>
           </div>
         </div>
 
         <div className="sensor-reading-card">
-          <span className="sensor-card-index">
-            {serialMode ? "ARDUINO SERIAL · VALUE" : "PUBLIC.READINGS · VALUE"}
-          </span>
+          <span className="sensor-card-index">PUBLIC.READINGS · VALUE</span>
           <div className="sensor-card-title">
             <span>최신 측정값</span>
             <span
               className={`sensor-card-dot ${
-                displayConnectionStatus === "live" ||
-                displayConnectionStatus === "serial-live"
-                  ? "active"
-                  : ""
+                connectionStatus === "live" ? "active" : ""
               }`}
             />
           </div>
@@ -533,11 +343,9 @@ function SensorDashboard({
             <span>
               {latestReading
                 ? formatTimestamp(latestReading.created_at)
-                : serialMode
-                  ? "시리얼 값을 기다리는 중입니다"
-                  : isLoading
-                    ? "데이터를 불러오는 중입니다"
-                    : "표시할 기록이 없습니다"}
+                : isLoading
+                  ? "데이터를 불러오는 중입니다"
+                  : "표시할 기록이 없습니다"}
             </span>
             <strong>
               {readings.length}/{READINGS_LIMIT}건
@@ -547,11 +355,6 @@ function SensorDashboard({
         {connectionError && (
           <p className="sensor-error" role="alert">
             Realtime 연결 오류: {connectionError}
-          </p>
-        )}
-        {serialError && (
-          <p className="sensor-error" role="alert">
-            시리얼 오류: {serialError}
           </p>
         )}
         {readingsError && (
@@ -577,10 +380,7 @@ function SensorDashboard({
 
         <div className="sensor-chart-frame">
           <div className="chart-meta">
-            <span>
-              {serialMode ? "Arduino serial" : "readings.value"} · 최근{" "}
-              {readings.length}건
-            </span>
+            <span>readings.value · 최근 {readings.length}건</span>
             <span>
               {readings.length
                 ? `${formatTimestamp(readings[0].created_at)} — ${formatTimestamp(readings[readings.length - 1].created_at)}`
@@ -655,11 +455,9 @@ function SensorDashboard({
           </svg>
           {readings.length === 0 && (
             <div className="sensor-chart-empty">
-              {serialMode
-                ? "시리얼 값을 기다리는 중입니다"
-                : isLoading
-                  ? "데이터를 불러오는 중입니다"
-                  : "표시할 데이터가 없습니다"}
+              {isLoading
+                ? "데이터를 불러오는 중입니다"
+                : "표시할 데이터가 없습니다"}
             </div>
           )}
         </div>
@@ -668,7 +466,7 @@ function SensorDashboard({
       <section className="sensor-info-strip">
         <div>
           <span>데이터 소스</span>
-          <strong>{serialMode ? "Arduino serial" : "public.readings"}</strong>
+          <strong>public.readings</strong>
         </div>
         <div>
           <span>표시 구간</span>
@@ -676,7 +474,7 @@ function SensorDashboard({
         </div>
         <div>
           <span>저장 방식</span>
-          <strong>{serialMode ? "DB 저장 안 함" : "Supabase 조회"}</strong>
+          <strong>Supabase Realtime</strong>
         </div>
         <div>
           <span>현재 로드</span>
@@ -765,9 +563,7 @@ export default function App() {
           />
           {view === "population"
             ? "첨부 통계 원본 · 2025년 기준"
-            : `${
-                sensorConnection.startsWith("serial-") ? "SERIAL" : "SUPABASE"
-              } · ${CONNECTION_LABELS[sensorConnection]}`}
+            : `SUPABASE · ${CONNECTION_LABELS[sensorConnection]}`}
         </div>
       </header>
 

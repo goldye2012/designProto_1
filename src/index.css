@@ -162,15 +162,13 @@ footer {
   margin-right: 10px;
 }
 
-.status-dot.connecting,
-.status-dot.serial-connecting {
+.status-dot.connecting {
   background: var(--muted);
   box-shadow: none;
 }
 
 .status-dot.offline,
-.status-dot.error,
-.status-dot.serial-error {
+.status-dot.error {
   background: var(--red);
   box-shadow: 0 0 12px rgba(255, 101, 79, 0.55);
 }
@@ -664,16 +662,14 @@ footer {
   filter: drop-shadow(0 0 8px rgba(200, 255, 50, 0.3));
 }
 
-.connection-pulse.connecting,
-.connection-pulse.serial-connecting {
+.connection-pulse.connecting {
   border-color: var(--muted);
   background: var(--muted);
   filter: none;
 }
 
 .connection-pulse.offline,
-.connection-pulse.error,
-.connection-pulse.serial-error {
+.connection-pulse.error {
   border-color: var(--red);
   background: var(--red);
   filter: drop-shadow(0 0 8px rgba(255, 101, 79, 0.3));
@@ -701,17 +697,8 @@ footer {
   color: var(--muted);
 }
 
-.sensor-connection.serial-connecting strong {
-  color: var(--muted);
-}
-
-.sensor-connection.serial-live strong {
-  color: var(--accent);
-}
-
 .sensor-connection.offline strong,
-.sensor-connection.error strong,
-.sensor-connection.serial-error strong {
+.sensor-connection.error strong {
   color: var(--red);
 }
 
@@ -737,6 +724,31 @@ footer {
   letter-spacing: -0.045em;
 }
 
+.sensor-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sensor-pause-button {
+  padding: 8px 12px;
+  border: 1px solid var(--dim);
+  background: transparent;
+  color: var(--white);
+  font: 400 9px/1 'DM Mono', monospace;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.sensor-pause-button:hover {
+  border-color: var(--white);
+}
+
+.sensor-pause-button.paused {
+  border-color: rgba(200, 255, 50, 0.35);
+  color: var(--accent);
+}
+
 .mock-badge {
   padding: 8px 12px;
   border: 1px solid var(--dim);
@@ -745,52 +757,13 @@ footer {
   letter-spacing: 0.06em;
 }
 
-.sensor-heading-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.serial-connect-button {
-  min-height: 34px;
-  padding: 0 13px;
-  border: 1px solid rgba(200, 255, 50, 0.45);
-  background: rgba(200, 255, 50, 0.08);
-  color: var(--accent);
-  font: 400 10px/1 'DM Mono', monospace;
-  cursor: pointer;
-  transition: background 160ms ease, border-color 160ms ease;
-}
-
-.serial-connect-button:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: rgba(200, 255, 50, 0.15);
-}
-
-.serial-connect-button.connected {
-  border-color: var(--dim);
-  background: transparent;
-  color: var(--muted);
-}
-
-.serial-connect-button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
 .mock-badge.live {
   border-color: rgba(200, 255, 50, 0.35);
   color: var(--accent);
 }
 
-.mock-badge.serial-live {
-  border-color: rgba(200, 255, 50, 0.35);
-  color: var(--accent);
-}
-
 .mock-badge.offline,
-.mock-badge.error,
-.mock-badge.serial-error {
+.mock-badge.error {
   border-color: rgba(255, 101, 79, 0.35);
   color: var(--red);
 }
