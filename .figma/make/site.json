@@ -1,5 +1,5 @@
 {
-  "description": "Visualize and analyze demographic data with an interactive dashboard that displays normalized trends over time and detailed graphs for each region.",
+  "description": "A setup workflow for preparing newly imported projects for deployment and preview, verifying readiness before release.",
   "robots": {
     "index": false
   },
