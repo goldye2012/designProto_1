@@ -32,7 +32,7 @@
 | 제품 컨셉 (한 줄) | `PRODUCT.concept` |
 | 제품 설명 (2~3문장) | `PRODUCT.description` |
 | 메인 컬러 | globals.css의 `--brand`, `--on-brand`. 기본값 블루 |
-| 폰트 | globals.css의 `--font-sans`(메인, 기본값 Pretendard), `--font-display`(서브, 기본값 Rising CHAI). 서브는 제품 이름과 센서값 숫자에만 |
+| 폰트 | globals.css의 `--font-sans`(메인, 기본값 Pretendard), `--font-display`(서브, 기본값 Pretendard). 서브는 제품 이름과 센서값 숫자에만 |
 
 ## 기능
 
