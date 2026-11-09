@@ -3,7 +3,7 @@
 아래 블록을 globals.css 맨 위에 그대로 넣는다. 메인 컬러, 폰트 슬롯은 여기서만 바꾼다.
 
 파일 위치:
-- 폰트 `public/fonts/`: Pretendard-Regular, Medium, SemiBold, RisingCHAI-ExtraBold, RisingCHAI-Light (.woff2)
+- 폰트 `public/fonts/`: Pretendard-Regular, Medium, SemiBold (.woff2)
 - 달 이미지 `public/images/moon.webp` (800×800, 투명 배경)
 
 ```css
@@ -11,17 +11,13 @@
 @font-face { font-family: "Pretendard"; src: url("/fonts/Pretendard-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
 @font-face { font-family: "Pretendard"; src: url("/fonts/Pretendard-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
 @font-face { font-family: "Pretendard"; src: url("/fonts/Pretendard-SemiBold.woff2") format("woff2"); font-weight: 600; font-display: swap; }
-/* 서브 폰트 Rising CHAI */
-@font-face { font-family: "Rising CHAI"; src: url("/fonts/RisingCHAI-Light.woff2") format("woff2"); font-weight: 300; font-display: swap; }
-@font-face { font-family: "Rising CHAI"; src: url("/fonts/RisingCHAI-ExtraBold.woff2") format("woff2"); font-weight: 800; font-display: swap; }
-
 :root {
   /* 학생 슬롯: 메인 컬러 (기본값 블루) */
   --brand: #2f5bff;
   --on-brand: #ffffff;
   /* 학생 슬롯: 폰트 (메인, 서브) */
   --font-sans: Pretendard, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
-  --font-display: "Rising CHAI", Pretendard, -apple-system, sans-serif;
+  --font-display: Pretendard, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
 
   --surface: #000000;
   --ink: #eef0f3;
@@ -42,8 +38,8 @@ body { margin: 0; background: var(--surface); color: var(--ink); font-family: va
 button { border: 0; border-radius: 0; }
 
 /* 타입: 자간, 행간 지정 없음 */
-.t-display { font-family: var(--font-display); font-size: 40px; font-weight: 800; }
-.t-value   { font-family: var(--font-display); font-size: 48px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.t-display { font-family: var(--font-display); font-size: 40px; font-weight: 600; }
+.t-value   { font-family: var(--font-display); font-size: 48px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .t-body    { font-size: 16px; font-weight: 400; }
 .t-label   { font-size: 14px; font-weight: 500; }
 .t-caption { font-size: 12px; font-weight: 400; }
