@@ -26,7 +26,7 @@ export default function SensorMoon({ value, power }: Props) {
         role="img"
         aria-label={label}
       >
-        <img src="/images/moon.webp" alt="" />
+        <img src={`${import.meta.env.BASE_URL}images/moon.webp`} alt="" />
       </div>
       <div className="current-reading">
         <strong className="t-value">
